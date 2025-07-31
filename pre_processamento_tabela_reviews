@@ -1,0 +1,142 @@
+Pré-Processamento - CONSULTAS - BigQuery
+
+#Tabela REVIEWS:
+
+# Discrepantes/outliers (visão geral)
+SELECT
+  MIN(price) AS preco_min,
+  MAX(price) AS preco_max,
+  MIN(reviews_per_month) AS rev_mes_min,
+  MAX(reviews_per_month) AS rev_mes_max,
+  MIN(availability_365) AS disponibilidade_min,
+  MAX(availability_365) AS disponibilidade_max
+FROM
+  `rota-airbnb-465302.dataset_airbnb.reviews`;
+
+# TRATAMENTO
+-- Verificar quantos imóveis têm preços (PRICES) extremos:
+SELECT
+  COUNT(*) AS total_registros,
+  COUNTIF(price = 0) AS preco_zero,
+  COUNTIF(price > 1000) AS acima_1000,
+  COUNTIF(price > 5000) AS acima_5000,
+  COUNTIF(price = 10000) AS igual_10000
+FROM
+  `rota-airbnb-465302.dataset_airbnb.reviews_corrigida`;
+
+-- Verificar a distribuição:(reviews_per_month)
+SELECT
+  COUNT(*) AS total,
+  COUNTIF(reviews_per_month > 20) AS acima_20,
+  COUNTIF(reviews_per_month > 30) AS acima_30,
+  COUNTIF(reviews_per_month > 40) AS acima_40
+FROM
+  `rota-airbnb-465302.dataset_airbnb.reviews_corrigida`;
+
+# TRATAMENTO:
+-- Query para criar flag de outlier:
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.reviews_com_outlier_flag` AS
+SELECT
+  *,
+  CASE 
+    WHEN price = 0 THEN 'preco_zero'
+    WHEN price > 5000 THEN 'preco_extremo'
+    WHEN reviews_per_month > 30 THEN 'review_extremo'
+    ELSE 'normal'
+  END AS tipo_outlier
+FROM `rota-airbnb-465302.dataset_airbnb.reviews_corrigida`;
+
+-----------------------------------------------------------------------------------------------------------------------
+
+#identificando os duplicados
+
+SELECT
+  id,
+  COUNT(*) AS ocorrencias
+FROM
+  `rota-airbnb-465302.dataset_airbnb.reviews`
+GROUP BY id
+HAVING COUNT(*) > 1;
+
+# excluir os registros com id inválido
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.reviews_corrigida` AS
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.reviews`
+WHERE id NOT IN (
+  'NEAR TO YANKE STADIUM"',
+  'muy cercadetodo"',
+  '15 min F Times Square"',
+  'Se habla Español"',
+  'Mount Sinai"',
+  'Brownstone"',
+  'AFFORDABLE PRICE"'
+);
+
+# (Opcional) Verifique se agora os ids ficaram únicos:
+SELECT id, COUNT(*) AS ocorrencias
+FROM `rota-airbnb-465302.dataset_airbnb.reviews_corrigida`
+GROUP BY id
+HAVING COUNT(*) > 1;
+
+-----------------------------------------------------------------------------------------------------------------------
+
+SELECT
+  COUNTIF(id IS NULL) AS nulo_id,
+  COUNTIF(host_id IS NULL) AS nulo_host_id,
+  COUNTIF(price IS NULL) AS nulo_price,
+  COUNTIF(number_of_reviews IS NULL) AS nulo_number_of_reviews,
+  COUNTIF(last_review IS NULL) AS nulo_last_review,
+  COUNTIF(reviews_per_month IS NULL) AS nulo_reviews_per_month,
+  COUNTIF(calculated_host_listings_count IS NULL) AS nulo_host_listings_count,
+  COUNTIF(availability_365 IS NULL) AS nulo_availability_365
+FROM
+  `rota-airbnb-465302.dataset_airbnb.reviews`;
+
+
+  #  Verifique valores não numéricos em number_of_reviews:
+  SELECT DISTINCT number_of_reviews
+FROM `rota-airbnb-465302.dataset_airbnb.reviews`
+WHERE SAFE_CAST(number_of_reviews AS INT64) IS NULL
+  AND number_of_reviews IS NOT NULL;
+
+
+# TRATAMENTO PARA OS NULOS
+-- Criar uma nova tabela (ou uma visualização) com registros limpos, onde:
+-- number_of_reviews é um número válido
+-- Campos como availability_365 e number_of_reviews são convertidos corretamente
+-- Nulos opcionais continuam (como last_review, que pode ser legítimo)
+
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.reviews_tratada` AS
+SELECT
+  id,
+  host_id,
+  price,
+  CAST(number_of_reviews AS INT64) AS number_of_reviews,
+  last_review,
+  reviews_per_month,
+  calculated_host_listings_count,
+  IFNULL(availability_365, 0) AS availability_365
+FROM
+  `rota-airbnb-465302.dataset_airbnb.reviews`
+WHERE SAFE_CAST(number_of_reviews AS INT64) IS NOT NULL;
+
+-----------------------------------------------------------------------------------------------------
+
+# VALORES FORA DO ESCOPO
+
+#➤ availability_365 (deve estar entre 0 e 365):
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.reviews`
+WHERE availability_365 < 0 OR availability_365 > 365;
+
+# ➤ price (valores negativos ou absurdamente altos)
+-- Você pode considerar outliers se price < 0 ou price > 10000 (ou outro limite que julgar razoável):
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.reviews`
+WHERE price < 0 OR price > 10000;
+
+#➤ reviews_per_month (valores negativos não fazem sentido)
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.reviews`
+WHERE reviews_per_month < 0;
+
