@@ -1,0 +1,126 @@
+Pré-Processamento - CONSULTAS - BigQuery
+
+#Tabela ROOMS:
+
+# ✅ ETAPA 1 — Verificar VALORES NULOS
+SELECT
+  COUNTIF(id IS NULL) AS nulo_id,
+  COUNTIF(name IS NULL) AS nulo_name,
+  COUNTIF(neighbourhood IS NULL) AS nulo_neighbourhood,
+  COUNTIF(neighbourhood_group IS NULL) AS nulo_neighbourhood_group,
+  COUNTIF(latitude IS NULL) AS nulo_latitude,
+  COUNTIF(longitude IS NULL) AS nulo_longitude,
+  COUNTIF(room_type IS NULL) AS nulo_room_type,
+  COUNTIF(minimum_nights IS NULL) AS nulo_minimum_nights
+FROM
+  `rota-airbnb-465302.dataset_airbnb.rooms`;
+
+-------------------------------------------------------------------------------
+
+# 🔁 ETAPA 2 — Verificar DUPLICADOS por id
+
+SELECT
+  id,
+  COUNT(*) AS ocorrencias
+FROM
+  `rota-airbnb-465302.dataset_airbnb.rooms`
+GROUP BY id
+HAVING COUNT(*) > 1;
+
+-----------------------------------------------------------------------------
+# 🚨 Query para excluir esses registros inválidos:
+
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.rooms_corrigida` AS
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.rooms`
+WHERE id NOT IN (
+  'Brownstone"',
+  'AFFORDABLE PRICE"',
+  'Mount Sinai"',
+  'NEAR TO YANKE STADIUM"',
+  '15 min F Times Square"',
+  'muy cercadetodo"',
+  'Se habla Español"'
+);
+
+-------------------------------------------------------------------------------
+# APENAS PARA VALIDAR A AÇÃO:
+
+SELECT id, COUNT(*) AS ocorrencias
+FROM `rota-airbnb-465302.dataset_airbnb.rooms_corrigida`
+GROUP BY id
+HAVING COUNT(*) > 1;
+
+----------------------------------------------------------------------------------
+
+# 🚫 ETAPA 3 — Verificar VALORES FORA DO ESCOPO
+
+-- ➤ 1. room_type (deve ser um dos tipos válidos)
+
+SELECT DISTINCT room_type
+FROM `rota-airbnb-465302.dataset_airbnb.rooms`;
+
+-- ➤ 2. minimum_nights (valores muito altos ou 0 são suspeitos)
+
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.rooms`
+WHERE minimum_nights <= 0 OR minimum_nights > 365;
+
+---------------------------------------------------------------------
+#TRATAIVA:
+
+#🚨 Query para excluir registros inválidos de room_type:
+
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.rooms_corrigida` AS
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.rooms`
+WHERE room_type IN ('Private room', 'Entire home/apt', 'Shared room');
+
+# Verificar depois da limpeza:
+SELECT DISTINCT room_type
+FROM `rota-airbnb-465302.dataset_airbnb.rooms_corrigida`;
+
+###################################################################################
+
+# ✅ Query para entender a distribuição de minimum_nights após exclusões:
+
+# 1️⃣ Verificar os extremos:
+SELECT 
+  MIN(minimum_nights) AS min_nights,
+  MAX(minimum_nights) AS max_nights,
+  APPROX_QUANTILES(minimum_nights, 4) AS quartis
+FROM `rota-airbnb-465302.dataset_airbnb.rooms_corrigida`;
+
+----------------------------------------------------------------------------
+# 2️⃣ Contar registros por faixas para ver onde estão concentrados
+SELECT 
+  COUNTIF(minimum_nights <= 7) AS ate_7_noites,
+  COUNTIF(minimum_nights BETWEEN 8 AND 30) AS de_8_a_30,
+  COUNTIF(minimum_nights BETWEEN 31 AND 90) AS de_31_a_90,
+  COUNTIF(minimum_nights BETWEEN 91 AND 365) AS de_91_a_365,
+  COUNTIF(minimum_nights > 365) AS acima_365
+FROM `rota-airbnb-465302.dataset_airbnb.rooms_corrigida`;
+
+-----------------------------------------------------------------------------
+
+# 🚨 Query para limpar os outliers finais:
+
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.rooms_tratada` AS
+SELECT *
+FROM `rota-airbnb-465302.dataset_airbnb.rooms_corrigida`
+WHERE minimum_nights > 0 AND minimum_nights <= 365;
+
+
+--------------------------------------------------------------------------------------------------------
+
+# 📈 ETAPA 4 — Verificar DISCREPANTES / OUTLIERS
+
+SELECT
+  MIN(minimum_nights) AS min_noites,
+  MAX(minimum_nights) AS max_noites,
+  MIN(latitude) AS lat_min,
+  MAX(latitude) AS lat_max,
+  MIN(CAST(longitude AS FLOAT64)) AS long_min,
+  MAX(CAST(longitude AS FLOAT64)) AS long_max
+FROM `rota-airbnb-465302.dataset_airbnb.rooms`
+WHERE SAFE_CAST(longitude AS FLOAT64) IS NOT NULL;
