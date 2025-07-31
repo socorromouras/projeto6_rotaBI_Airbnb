@@ -1,0 +1,42 @@
+Pré-Processamento - CONSULTAS - BigQuery
+
+#Tabela HOSTS:
+
+# IDENTIFICANDO OS DUPLICADOS
+
+SELECT
+  host_id,
+  COUNT(*) AS ocorrencias
+FROM
+  `rota-airbnb-465302.dataset_airbnb.hosts`
+GROUP BY
+  host_id
+HAVING
+  COUNT(*) > 1;
+
+# TRATANDO OS DUPLICADOS E ASSIM CRIANDO UMA NOVA TABELA
+
+CREATE OR REPLACE TABLE `rota-airbnb-465302.dataset_airbnb.hosts_deduplicado` AS
+SELECT
+  host_id,
+  host_name
+FROM (
+  SELECT *,
+         ROW_NUMBER() OVER (PARTITION BY host_id ORDER BY host_name) AS ordem
+  FROM `rota-airbnb-465302.dataset_airbnb.hosts`
+)
+WHERE ordem = 1;
+
+-------------------------------------------------------------------------------------------------
+
+# NULOS:
+
+SELECT
+  COUNTIF(host_id IS NULL) AS nulos_host_id,
+  COUNTIF(host_name IS NULL) AS nulos_host_name
+FROM
+  `rota-airbnb-465302.dataset_airbnb.hosts`;
+
+-------------------------------------------------------------------------------------------------
+
+
